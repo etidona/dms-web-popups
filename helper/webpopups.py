@@ -297,7 +297,7 @@ def run_daemon():
         def notify(self, app_id, title, body):
             spec = self.specs.get(app_id, {})
             name = clean_text(spec.get("name", "Web Popups"))
-            run_quiet(["notify-send", "-a", name, "-i", self.favicons.get(app_id) or "web-browser",
+            run_quiet(["dms", "notify", "-a", name, "-i", self.favicons.get(app_id) or "web-browser",
                        "--", clean_text(title) or name, clean_text(body)])
 
         @pyqtSlot(str, str)

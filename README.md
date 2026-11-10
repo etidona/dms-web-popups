@@ -75,8 +75,6 @@ For each app you can choose:
 On other distros, install the equivalent packages. The plugin checks the
 requirements when you enable it and tells you if something is missing.
 
-`notify-send` (libnotify) is used for notifications.
-
 Tested on Fedora Asahi Linux (Apple Silicon MacBook) with niri.
 
 ## Install
