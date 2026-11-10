@@ -1,0 +1,34 @@
+{
+    "$schema": "https://github.com/duxlabs-dev/dux-shell/raw/refs/heads/master/quickshell/PLUGINS/plugin-schema.json",
+    "id": "webPopups",
+    "name": "Web Popups",
+    "description": "Open any web app (WhatsApp, Telegram, Discord, YouTube...) in a popup next to the bar, one button per app, with unread badges and notifications",
+    "version": "0.1.0",
+    "license": "GPL-3.0-or-later",
+    "author": "etidona",
+    "type": "widget",
+    "capabilities": [
+        "dankbar-widget",
+        "variants"
+    ],
+    "component": "./WebPopupsWidget.qml",
+    "settings": "./WebPopupsSettings.qml",
+    "startupCheck": "./StartupCheck.qml",
+    "icon": "web",
+    "requires": [
+        "python3"
+    ],
+    "dependencies": [
+        "python3-pyqt6-webengine",
+        "layer-shell-qt"
+    ],
+    "permissions": [
+        "settings_read",
+        "settings_write",
+        "process"
+    ],
+    "requires_dms": ">=2.0.0",
+    "compositors": [
+        "any"
+    ]
+}
