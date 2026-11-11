@@ -133,12 +133,13 @@ def safe_filename(name):
     return (stem + ext) if stem else "download" + ext[:20]
 
 
-def unique_path(folder, name):
-    """Return folder/name, or folder/name (1).ext etc. when it already exists."""
+def unique_path(folder, name, reserved=()):
+    """Return folder/name, or folder/name (1).ext etc. when it already exists
+    or is reserved by a download in progress."""
     stem, ext = os.path.splitext(name)
     candidate = os.path.join(folder, name)
     n = 1
-    while os.path.exists(candidate):
+    while os.path.exists(candidate) or candidate in reserved:
         candidate = os.path.join(folder, f"{stem} ({n}){ext}")
         n += 1
     return candidate
@@ -244,6 +245,7 @@ def run_daemon():
                               QTimer, QUrl, QVariant, Q_ARG, pyqtProperty, pyqtSlot)
     from PyQt6.QtWidgets import QApplication
     from PyQt6.QtQml import QQmlComponent, QQmlEngine
+    from PyQt6.QtWebEngineCore import QWebEngineDownloadRequest
     from PyQt6.QtWebEngineQuick import QQuickWebEngineProfile, QtWebEngineQuick
 
     QtWebEngineQuick.initialize()
@@ -287,6 +289,13 @@ def run_daemon():
             # until the plugin has saved them (they then come back in the spec).
             self.chosen = {}
             self.profiles = {}
+            # Apps removed in this session: a late click from another bar
+            # must not create their profile again.
+            self.removed = set()
+            self.purged = set()  # removed with purge: delete again on quit
+            # Downloads in progress, and the file names they will write.
+            self.downloads = set()
+            self.reserved = set()
             self.last_state = None
             self._icon_font = find_icon_font()
             self.write_state()
@@ -329,13 +338,36 @@ def run_daemon():
                 self.favicons[app_id] = path
                 self.write_state()
 
-        @pyqtSlot(str, result=list)
-        def downloadTarget(self, suggested):
+        @pyqtSlot(str, QObject)
+        def startDownload(self, app_id, download):
+            """Save a download in the Downloads folder under a safe, unused
+            name, and notify when it ends. Tracked here, not in the popup,
+            so it completes even if the popup is dropped first."""
+            if not isinstance(download, QWebEngineDownloadRequest):
+                log("unexpected download object:", type(download).__name__)
+                return
             folder = QStandardPaths.writableLocation(
                 QStandardPaths.StandardLocation.DownloadLocation) or os.path.expanduser("~/Downloads")
             os.makedirs(folder, exist_ok=True)
-            path = unique_path(folder, safe_filename(suggested))
-            return [folder, os.path.basename(path)]
+            path = unique_path(folder, safe_filename(download.downloadFileName()), self.reserved)
+            self.reserved.add(path)
+            self.downloads.add(download)
+            name = os.path.basename(path)
+
+            def finished():
+                if not download.isFinished():
+                    return
+                self.reserved.discard(path)
+                self.downloads.discard(download)
+                if download.state() == QWebEngineDownloadRequest.DownloadState.DownloadCompleted:
+                    self.notify(app_id, "Download complete", name)
+                else:
+                    self.notify(app_id, "Download failed", download.interruptReasonString())
+
+            download.isFinishedChanged.connect(finished)
+            download.setDownloadDirectory(folder)
+            download.setDownloadFileName(name)
+            download.accept()
 
         @pyqtSlot(str, str)
         def markAutohidden(self, app_id, screen):
@@ -430,6 +462,8 @@ def run_daemon():
 
         def ensure(self, spec):
             app_id = spec["id"]
+            if app_id in self.removed:
+                raise ValueError("app was removed: " + app_id)
             spec = dict(spec, **self.chosen.get(app_id, {}))  # not saved by the plugin yet
             popup = self.popups.get(app_id)
             url_changed = self.specs.get(app_id, {}).get("url") != spec["url"]
@@ -477,6 +511,8 @@ def run_daemon():
                     QQuickWebEngineProfile.PersistentPermissionsPolicy.StoreInMemory)
                 # A plain Chrome user agent: some sites reject "QtWebEngine".
                 profile.setHttpUserAgent(re.sub(r" QtWebEngine/\S+", "", profile.httpUserAgent()))
+                profile.presentNotification.connect(
+                    lambda n, app_id=app_id: self.notify(app_id, n.title(), n.message()))
                 self.profiles[app_id] = profile
             return profile
 
@@ -490,6 +526,7 @@ def run_daemon():
             self.write_state()
 
         def remove(self, app_id, purge):
+            self.removed.add(app_id)
             self.drop(app_id)
             profile = self.profiles.pop(app_id, None)
             if profile is not None:
@@ -502,6 +539,7 @@ def run_daemon():
             self.chosen.pop(app_id, None)
             self.write_state()
             if purge:
+                self.purged.add(app_id)
                 purge_app_data(app_id)
                 if profile is not None:
                     # The profile may still write while it shuts down.
@@ -543,7 +581,26 @@ def run_daemon():
             elif cmd == "remove" and valid_app_id(app_id):
                 self.remove(app_id, bool(msg.get("purge")))
             elif cmd == "quit":
-                app.quit()
+                self.shutdown()
+
+        def shutdown(self):
+            """Quit without crashing: delete the popups first, then the
+            profiles they use, then the QML engine."""
+            for popup in self.popups.values():
+                popup.setProperty("visible", False)
+                popup.deleteLater()
+            self.popups.clear()
+            app.processEvents()
+            for profile in self.profiles.values():
+                profile.deleteLater()
+            self.profiles.clear()
+            app.processEvents()
+            self.component.deleteLater()
+            self.engine.deleteLater()
+            app.processEvents()
+            for app_id in self.purged:  # profiles closed: nothing writes now
+                purge_app_data(app_id)
+            app.quit()
 
         def write_state(self):
             state = {}

@@ -274,26 +274,14 @@ Window {
 
     // ---- web engine ---------------------------------------------------------
 
+    // Notifications are connected in the helper, on the profile. Downloads
+    // are handed over to it too, so they finish (and notify) even when this
+    // popup is dropped first.
     Connections {
         target: win.profile
 
-        function onPresentNotification(notification) {
-            backend.notify(win.appId, notification.title, notification.message);
-        }
-
         function onDownloadRequested(download) {
-            const target = backend.downloadTarget(download.downloadFileName);
-            download.downloadDirectory = target[0];
-            download.downloadFileName = target[1];
-            download.isFinishedChanged.connect(() => {
-                if (!download.isFinished)
-                    return;
-                if (download.state === WebEngineDownloadRequest.DownloadCompleted)
-                    backend.notify(win.appId, "Download complete", target[1]);
-                else
-                    backend.notify(win.appId, "Download failed", download.interruptReasonString);
-            });
-            download.accept();
+            backend.startDownload(win.appId, download);
         }
     }
 
@@ -333,7 +321,7 @@ Window {
 
         FontLoader {
             id: iconFont
-            source: backend.iconFontPath ? "file://" + backend.iconFontPath : ""
+            source: backend?.iconFontPath ? "file://" + backend.iconFontPath : ""
         }
 
         Item {

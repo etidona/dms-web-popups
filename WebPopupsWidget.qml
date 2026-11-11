@@ -96,8 +96,10 @@ PluginComponent {
             if (changedPluginId !== root.pluginId || !root.variantId)
                 return;
             const data = PluginService.getPluginVariantData(root.pluginId, root.variantId);
-            if (!data)
+            if (!data) {
+                root.variantData = null; // removed: clicks do nothing
                 return;
+            }
             const changed = JSON.stringify(root.specFor(root.variantId, data)) !== JSON.stringify(root.appSpec());
             root.variantData = data;
             // Apply settings changes to a loaded popup right away.
