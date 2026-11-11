@@ -319,9 +319,12 @@ Window {
         border.color: win.borderColor
         clip: true
 
+        // The icon font of the running shell (sent by the plugin), else the
+        // one found by the helper, else an installed "Material Symbols Rounded".
         FontLoader {
             id: iconFont
-            source: backend?.iconFontPath ? "file://" + backend.iconFontPath : ""
+            readonly property string path: win.theme.iconFont || backend?.iconFontPath || ""
+            source: path ? "file://" + path : ""
         }
 
         Item {
@@ -482,7 +485,7 @@ Window {
         Text {
             anchors.centerIn: parent
             text: hb.glyph
-            font.family: iconFont.font.family
+            font.family: iconFont.status === FontLoader.Ready ? iconFont.font.family : "Material Symbols Rounded"
             font.pixelSize: win.glyphSize
             color: hb.active ? win.accentColor : win.fgColor
         }

@@ -147,7 +147,10 @@ PluginComponent {
             iconSizeSmall: Theme.iconSizeSmall,
             spacingXS: Theme.spacingXS,
             spacingS: Theme.spacingS,
-            spacingM: Theme.spacingM
+            spacingM: Theme.spacingM,
+            // Where the running shell keeps its icon font: a DMS build with
+            // the UI embedded unpacks it under $XDG_RUNTIME_DIR.
+            iconFont: Quickshell.shellDir + "/DCommon/assets/fonts/material-design-icons/variablefont/MaterialSymbolsRounded[FILL,GRAD,opsz,wght].ttf"
         };
     }
 
