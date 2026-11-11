@@ -234,7 +234,7 @@ def run_daemon():
     # theme is set already (DMS exports one, e.g. "kde").
     os.environ.setdefault("QT_QPA_PLATFORMTHEME", "xdgdesktopportal")
 
-    from PyQt6.QtCore import (QMargins, QMetaObject, QObject, QSocketNotifier, Qt,
+    from PyQt6.QtCore import (QMargins, QMetaObject, QObject, QSocketNotifier, QStandardPaths, Qt,
                               QTimer, QUrl, QVariant, Q_ARG, pyqtProperty, pyqtSlot)
     from PyQt6.QtWidgets import QApplication
     from PyQt6.QtQml import QQmlComponent, QQmlEngine
@@ -323,14 +323,8 @@ def run_daemon():
 
         @pyqtSlot(str, result=list)
         def downloadTarget(self, suggested):
-            folder = os.path.expanduser("~/Downloads")
-            try:
-                out = subprocess.run(["xdg-user-dir", "DOWNLOAD"], capture_output=True,
-                                     text=True, timeout=2).stdout.strip()
-                if out:
-                    folder = out
-            except (OSError, subprocess.SubprocessError):
-                pass
+            folder = QStandardPaths.writableLocation(
+                QStandardPaths.StandardLocation.DownloadLocation) or os.path.expanduser("~/Downloads")
             os.makedirs(folder, exist_ok=True)
             path = unique_path(folder, safe_filename(suggested))
             return [folder, os.path.basename(path)]

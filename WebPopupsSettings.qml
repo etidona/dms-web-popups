@@ -91,6 +91,13 @@ PluginSettings {
         wrapMode: Text.WordWrap
     }
 
+    ToggleSetting {
+        settingKey: "groupIcons"
+        label: "Group the app buttons"
+        description: "Show one button on each bar that expands into all your web apps when you hover over it"
+        defaultValue: false
+    }
+
     // ---- presets ---------------------------------------------------------
 
     StyledRect {

@@ -3,7 +3,7 @@
     "id": "webPopups",
     "name": "Web Popups",
     "description": "Open any web app (WhatsApp, Telegram, Discord, YouTube...) in a popup next to the bar, one button per app, with unread badges and notifications",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "license": "GPL-3.0-or-later",
     "author": "etidona",
     "type": "widget",
@@ -15,12 +15,11 @@
     "settings": "./WebPopupsSettings.qml",
     "startupCheck": "./StartupCheck.qml",
     "icon": "web",
-    "requires": [
-        "python3"
-    ],
     "dependencies": [
+        "python3",
         "python3-pyqt6-webengine",
-        "layer-shell-qt"
+        "layer-shell-qt",
+        "xdg-utils"
     ],
     "permissions": [
         "settings_read",

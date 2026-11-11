@@ -25,6 +25,8 @@ bar; click outside and it goes away, still signed in and still connected.
   YouTube playback controls), medium and large. Change it from the settings or
   with the size button in the popup header.
 - **Popup header**: back, reload, size, keep open (pin), close.
+- **Grouped buttons** (optional): one button per bar that expands into all
+  your web apps when you hover over it, with the total unread count.
 - **Fits your desktop**: follows the DMS theme colors, and works with bars on
   any screen edge and on multiple monitors.
 
@@ -35,6 +37,12 @@ bar; click outside and it goes away, still signed in and still connected.
    a [Material Symbols](https://fonts.google.com/icons) icon name.
 3. The new button appears in the center of your main bar. Move it where you
    like from the bar settings.
+
+Turn on **Group the app buttons** to keep the bar tidy: the first Web Popups
+button of each bar shows a single globe icon, and expands into all the apps
+of that bar on hover. Click an app to open it, right click to reload it. The
+group works best at the start or end of a bar: in the center section it
+re-centers while it grows.
 
 For each app you can choose:
 
@@ -65,12 +73,13 @@ For each app you can choose:
 - DankMaterialShell 2.0 or later
 - A Wayland compositor with layer-shell support (niri, Hyprland, Sway, KDE
   Plasma, ...)
-- Python 3 with PyQt6 and Qt WebEngine, and the layer-shell-qt QML module:
+- Python 3 with PyQt6 and Qt WebEngine, the layer-shell-qt QML module, and
+  `xdg-open` (xdg-utils) for links:
 
 | Distro | Command |
 |---|---|
-| Fedora | `sudo dnf install python3-pyqt6-webengine layer-shell-qt` |
-| Arch | `sudo pacman -S python-pyqt6-webengine layer-shell-qt` |
+| Fedora | `sudo dnf install python3-pyqt6-webengine layer-shell-qt xdg-utils` |
+| Arch | `sudo pacman -S python-pyqt6-webengine layer-shell-qt xdg-utils` |
 
 On other distros, install the equivalent packages. The plugin checks the
 requirements when you enable it and tells you if something is missing.
@@ -91,7 +100,8 @@ Pages are rendered by Chromium (Qt WebEngine). Qt WebEngine cannot run inside
 Quickshell, so a small helper process shows the popups as layer-shell
 surfaces, the same kind of window the bar itself uses. The helper starts the
 first time it is needed and holds every page, so apps can stay loaded in the
-background. The bar buttons talk to it through a Unix socket.
+background. The bar buttons talk to it through a Unix socket, and stop it
+when the plugin is disabled.
 
 - `WebPopupsWidget.qml`: the bar button
 - `WebPopupsSettings.qml`: the settings page
@@ -114,7 +124,6 @@ Where the data is kept (`<id>` is the id DMS gives each app, e.g.
 - Sign-in flows that open a separate window open in your browser instead, and
   may not complete there.
 - Fullscreen videos fill the popup, not the whole screen.
-- The helper keeps running after you disable the plugin, until you log out.
 
 ## Uninstall
 

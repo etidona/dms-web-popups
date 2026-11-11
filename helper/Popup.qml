@@ -32,13 +32,21 @@ Window {
         large: [0.75, 0.94]
     })
     readonly property var sizeOrder: Object.keys(sizes)
-    readonly property int gap: 6
 
     readonly property color bgColor: theme.bg || "#1d1b20"
     readonly property color fgColor: theme.fg || "#e6e0e9"
     readonly property color accentColor: theme.accent || "#d0bcff"
     readonly property color borderColor: theme.border || "#40ffffff"
     readonly property int radius: theme.radius || 16
+    // Sizes from the DMS theme (Theme.fontSizeMedium, Theme.spacingS, ...).
+    readonly property real fontSize: theme.fontSize || 14
+    readonly property real glyphSize: theme.iconSize || 20
+    readonly property real faviconSize: theme.iconSizeSmall || 16
+    readonly property real spacingXS: theme.spacingXS || 4
+    readonly property real spacingS: theme.spacingS || 8
+    readonly property real spacingM: theme.spacingM || 12
+    readonly property real buttonSize: glyphSize + 2 * spacingXS
+    readonly property real gap: spacingS // from the screen edges
 
     title: appSpec.name || "Web Popups"
     color: "transparent"
@@ -180,8 +188,15 @@ Window {
     }
 
     onVisibleChanged: {
-        if (visible)
-            faviconImage.saveFavicon();
+        if (!visible)
+            return;
+        // Chromium drops the frame of a page hidden for a few minutes and
+        // does not draw a new one when the window is shown again, leaving
+        // stale GPU memory on screen. Hiding and showing the view makes it
+        // render again.
+        view.visible = false;
+        view.visible = true;
+        faviconImage.saveFavicon();
     }
 
     onActiveChanged: {
@@ -319,15 +334,15 @@ Window {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
-            height: 42
+            height: win.buttonSize + win.spacingM
 
             Image {
                 id: faviconImage
                 anchors.left: parent.left
-                anchors.leftMargin: 14
+                anchors.leftMargin: win.spacingM
                 anchors.verticalCenter: parent.verticalCenter
-                width: 18
-                height: 18
+                width: win.faviconSize
+                height: win.faviconSize
                 sourceSize.width: 64
                 sourceSize.height: 64
                 source: view.icon
@@ -345,14 +360,14 @@ Window {
 
             Text {
                 anchors.left: faviconImage.visible ? faviconImage.right : parent.left
-                anchors.leftMargin: faviconImage.visible ? 8 : 14
+                anchors.leftMargin: faviconImage.visible ? win.spacingS : win.spacingM
                 anchors.right: buttons.left
-                anchors.rightMargin: 8
+                anchors.rightMargin: win.spacingS
                 anchors.verticalCenter: parent.verticalCenter
                 text: win.appSpec.name || ""
                 color: win.fgColor
                 font.family: win.theme.font || ""
-                font.pixelSize: 15
+                font.pixelSize: win.fontSize
                 font.weight: Font.DemiBold
                 elide: Text.ElideRight
             }
@@ -360,7 +375,7 @@ Window {
             Row {
                 id: buttons
                 anchors.right: parent.right
-                anchors.rightMargin: 8
+                anchors.rightMargin: win.spacingS
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 2
 
@@ -455,16 +470,16 @@ Window {
         property bool active: false
         signal clicked
 
-        width: 30
-        height: 30
-        radius: 15
+        width: win.buttonSize
+        height: win.buttonSize
+        radius: width / 2
         color: active ? Qt.alpha(win.accentColor, 0.18) : (mouse.containsMouse ? Qt.alpha(win.fgColor, 0.10) : "transparent")
 
         Text {
             anchors.centerIn: parent
             text: hb.glyph
             font.family: iconFont.font.family
-            font.pixelSize: 20
+            font.pixelSize: win.glyphSize
             color: hb.active ? win.accentColor : win.fgColor
         }
 

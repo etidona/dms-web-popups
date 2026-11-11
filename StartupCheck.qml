@@ -16,8 +16,8 @@ QtObject {
             done({
                 title: "Web Popups needs PyQt6 WebEngine and layer-shell-qt",
                 details: "Install the missing packages, then re-enable the plugin.\n\n"
-                    + "Fedora:  sudo dnf install python3-pyqt6-webengine layer-shell-qt\n"
-                    + "Arch:    sudo pacman -S python-pyqt6-webengine layer-shell-qt\n"
+                    + "Fedora:  sudo dnf install python3-pyqt6-webengine layer-shell-qt xdg-utils\n"
+                    + "Arch:    sudo pacman -S python-pyqt6-webengine layer-shell-qt xdg-utils\n"
                     + "Other distros:  install PyQt6 with Qt WebEngine and the layer-shell-qt QML module"
             });
         });
