@@ -17,10 +17,17 @@ PluginComponent {
 
     readonly property string appName: variantData?.name || "Web app"
     readonly property string appIcon: variantData?.icon || "web"
-    // Helper state for every app (unread, favicon), from state.json.
+    // Helper state for every app (unread, favicon, sound), from state.json.
     property var appState: ({})
     readonly property int unread: appState[variantId]?.unread ?? 0
     readonly property string favicon: appState[variantId]?.favicon ?? ""
+    readonly property string sound: soundOf(variantId)
+
+    // "muted", "audible" (played sound recently) or "" for a loaded app.
+    function soundOf(id) {
+        const entry = appState[id];
+        return entry?.muted ? "muted" : (entry?.audible ? "audible" : "");
+    }
 
     // ---- grouping ----------------------------------------------------------
     // With "Group the app buttons" on, the first Web Popups button of a bar
@@ -89,8 +96,13 @@ PluginComponent {
             if (changedPluginId !== root.pluginId || !root.variantId)
                 return;
             const data = PluginService.getPluginVariantData(root.pluginId, root.variantId);
-            if (data)
-                root.variantData = data;
+            if (!data)
+                return;
+            const changed = JSON.stringify(root.specFor(root.variantId, data)) !== JSON.stringify(root.appSpec());
+            root.variantData = data;
+            // Apply settings changes to a loaded popup right away.
+            if (changed && data.url)
+                root.send({ cmd: "register", app: root.appSpec() });
         }
     }
 
@@ -105,7 +117,8 @@ PluginComponent {
             size: data?.size || "medium",
             keepAlive: data?.keepAlive ?? true,
             allowMicrophone: data?.allowMicrophone ?? false,
-            allowCamera: data?.allowCamera ?? false
+            allowCamera: data?.allowCamera ?? false,
+            muted: data?.muted ?? false
         };
     }
 
@@ -172,7 +185,8 @@ PluginComponent {
         // popupAnchor gives the icon's center on vertical bars, its start
         // on horizontal ones; placement() expects the start.
         const start = isVertical ? t.y - size / 2 : t.y;
-        send({ cmd: "toggle", app: specFor(app.id, app), place: placement(t.x, start, size, anchor.screen) });
+        const data = PluginService.getPluginVariantData(pluginId, app.id) || app; // `variants` can be stale
+        send({ cmd: "toggle", app: specFor(app.id, data), place: placement(t.x, start, size, anchor.screen) });
     }
 
     // Web apps open on click only, even when the bar opens popouts on hover.
@@ -211,13 +225,13 @@ PluginComponent {
             try {
                 root.appState = JSON.parse(text()) || {};
                 const entry = root.appState[root.variantId];
-                // Size picked with the popup's own size button: save it.
-                // Then tell the helper, which stops reporting it.
-                const chosen = entry?.chosenSize;
+                // Settings changed from the popup header (size, mute): save
+                // them. Then tell the helper, which stops reporting them.
+                const chosen = entry?.chosen;
                 if (chosen) {
-                    if (chosen !== root.variantData?.size)
-                        PluginService.updatePluginVariant(root.pluginId, root.variantId, { size: chosen });
-                    root.send({ cmd: "register", app: Object.assign(root.appSpec(), { size: chosen }) });
+                    if (Object.keys(chosen).some(key => chosen[key] !== root.variantData?.[key]))
+                        PluginService.updatePluginVariant(root.pluginId, root.variantId, chosen);
+                    root.send({ cmd: "register", app: Object.assign(root.appSpec(), chosen) });
                 }
             } catch (e) {
                 root.appState = {};
@@ -228,12 +242,13 @@ PluginComponent {
     // ---- bar pill ----------------------------------------------------------
 
     // An app icon (favicon, or the Material Symbols icon until the page has
-    // loaded) with its unread badge.
+    // loaded) with its unread badge and sound mark.
     component AppGlyph: Item {
         id: glyph
         property string favicon: root.favicon
         property string icon: root.appIcon
         property int unread: root.unread
+        property string sound: root.sound
 
         implicitWidth: root.iconSize
         implicitHeight: root.iconSize
@@ -278,6 +293,25 @@ PluginComponent {
                 color: Theme.onPrimary
             }
         }
+
+        Rectangle {
+            visible: glyph.sound !== ""
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.rightMargin: -width / 3
+            anchors.bottomMargin: -height / 3
+            width: Math.round(root.iconSize * 0.55)
+            height: width
+            radius: width / 2
+            color: Theme.surfaceContainer
+
+            DIcon {
+                anchors.centerIn: parent
+                name: glyph.sound === "muted" ? "volume_off" : "volume_up"
+                size: parent.width * 0.8
+                color: glyph.sound === "muted" ? Theme.surfaceVariantText : Theme.primary
+            }
+        }
     }
 
     // The group: one icon with the total unread count; on hover it grows
@@ -307,6 +341,10 @@ PluginComponent {
             favicon: ""
             icon: "language"
             unread: root.groupApps.reduce((sum, app) => sum + (root.appState[app.id]?.unread ?? 0), 0)
+            sound: {
+                const sounds = root.groupApps.map(app => root.soundOf(app.id));
+                return sounds.includes("audible") ? "audible" : (sounds.includes("muted") ? "muted" : "");
+            }
             opacity: root.groupOpen ? 0 : 1
             visible: opacity > 0
             Behavior on opacity { NumberAnimation { duration: Theme.shortDuration } }
@@ -328,6 +366,7 @@ PluginComponent {
                     favicon: root.appState[modelData.id]?.favicon ?? ""
                     icon: modelData.icon || "web"
                     unread: root.appState[modelData.id]?.unread ?? 0
+                    sound: root.soundOf(modelData.id)
 
                     MouseArea {
                         anchors.fill: parent

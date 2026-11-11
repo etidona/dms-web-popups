@@ -24,7 +24,10 @@ bar; click outside and it goes away, still signed in and still connected.
 - **Three sizes**, in proportion to the screen: small (a mini player, e.g.
   YouTube playback controls), medium and large. Change it from the settings or
   with the size button in the popup header.
-- **Popup header**: back, reload, size, keep open (pin), close.
+- **Sound**: a small speaker on the bar button shows which app is playing
+  sound, or that it is muted. Mute an app from the settings or with the mute
+  button in the popup header.
+- **Popup header**: back, reload, size, mute, keep open (pin), close.
 - **Grouped buttons** (optional): one button per bar that expands into all
   your web apps when you hover over it, with the total unread count.
 - **Fits your desktop**: follows the DMS theme colors, and works with bars on
@@ -51,6 +54,8 @@ For each app you can choose:
   then, to save memory.
 - **Allow microphone** and **Allow camera**: needed for calls and voice
   messages. Both are off by default.
+- **Mute audio**: silences the app's sounds. The mute button in the popup
+  header changes the same setting.
 
 ## Privacy and security
 

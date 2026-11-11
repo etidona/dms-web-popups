@@ -31,6 +31,12 @@ CACHE_DIR = os.path.join(CACHE_HOME, "webpopups")
 # Seconds: a toggle right after a focus-loss hide keeps the popup hidden
 # (clicking the bar button first takes focus away, then sends the toggle).
 AUTOHIDE_GRACE = 0.6
+SIZES = ("small", "medium", "large")
+# Per-app settings the popup header can change, with their validators.
+CHOOSABLE = {
+    "size": lambda v: v in SIZES,
+    "muted": lambda v: isinstance(v, bool),
+}
 UNREAD_RE = re.compile(r"\((\d+)\)|^\[(\d+)\]")
 APP_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 EXTERNAL_SCHEMES = {"http", "https", "mailto"}
@@ -273,13 +279,15 @@ def run_daemon():
             self.specs = {}
             self.unread = {}
             self.favicons = {}
+            self.audible = {}
             self.autohidden_at = {}
             self.app_origins = {}
             self.theme = {}
-            # Size picked with the popup's size button, until the plugin has
-            # saved it to the DMS settings (it then comes back in the spec).
-            self.chosen_size = {}
+            # Settings changed from the popup header ({app: {key: value}}),
+            # until the plugin has saved them (they then come back in the spec).
+            self.chosen = {}
             self.profiles = {}
+            self.last_state = None
             self._icon_font = find_icon_font()
             self.write_state()
 
@@ -347,11 +355,16 @@ def run_daemon():
             if not self.specs.get(app_id, {}).get("keepAlive", True):
                 self.drop(app_id)
 
-        @pyqtSlot(str, str)
-        def sizeChosen(self, app_id, size):
-            if size in ("small", "medium", "large"):
-                self.chosen_size[app_id] = size
+        @pyqtSlot(str, str, QVariant)
+        def valueChosen(self, app_id, key, value):
+            if key in CHOOSABLE and CHOOSABLE[key](value):
+                self.chosen.setdefault(app_id, {})[key] = value
                 self.write_state()
+
+        @pyqtSlot(str, bool)
+        def audibleChanged(self, app_id, audible):
+            self.audible[app_id] = audible
+            self.write_state()
 
         @pyqtSlot(QObject, int, int, int, int)
         def setMargins(self, window, left, top, right, bottom):
@@ -405,18 +418,19 @@ def run_daemon():
 
         # ---- popups ---------------------------------------------------------
 
-        def settle_size(self, spec):
-            """Forget the size picked with the size button once the plugin
-            has saved it, so it can never override a later settings change."""
-            if self.chosen_size.get(spec["id"]) == spec.get("size"):
-                self.chosen_size.pop(spec["id"])
-                self.write_state()
+        def settle_chosen(self, spec):
+            """Forget values chosen in the popup header once the plugin has
+            saved them, so they can never override a later settings change."""
+            chosen = self.chosen.get(spec["id"], {})
+            for key in [k for k, v in chosen.items() if spec.get(k) == v]:
+                del chosen[key]
+            if not chosen:
+                self.chosen.pop(spec["id"], None)
+            self.write_state()
 
         def ensure(self, spec):
             app_id = spec["id"]
-            chosen = self.chosen_size.get(app_id)
-            if chosen:
-                spec = dict(spec, size=chosen)  # not saved by the plugin yet
+            spec = dict(spec, **self.chosen.get(app_id, {}))  # not saved by the plugin yet
             popup = self.popups.get(app_id)
             url_changed = self.specs.get(app_id, {}).get("url") != spec["url"]
             self.specs[app_id] = spec
@@ -432,11 +446,12 @@ def run_daemon():
                         log(e.toString())
                     raise RuntimeError("cannot create popup")
                 self.popups[app_id] = popup
-                return popup
-            popup.setProperty("appSpec", spec)
-            if url_changed:
-                self.load_app_origins(app_id, spec["url"])
-                call(popup, "goHome")
+            else:
+                popup.setProperty("appSpec", spec)
+                if url_changed:
+                    self.load_app_origins(app_id, spec["url"])
+                    call(popup, "goHome")
+            self.write_state()
             return popup
 
         def profile_for(self, app_id):
@@ -471,6 +486,7 @@ def run_daemon():
                 popup.setProperty("visible", False)
                 popup.deleteLater()
             self.unread.pop(app_id, None)
+            self.audible.pop(app_id, None)
             self.write_state()
 
         def remove(self, app_id, purge):
@@ -483,6 +499,8 @@ def run_daemon():
             self.specs.pop(app_id, None)
             self.app_origins.pop(app_id, None)
             self.favicons.pop(app_id, None)
+            self.chosen.pop(app_id, None)
+            self.write_state()
             if purge:
                 purge_app_data(app_id)
                 if profile is not None:
@@ -508,10 +526,11 @@ def run_daemon():
                 if not isinstance(spec, dict) or not valid_app_id(spec.get("id")) or \
                         urlsplit(spec.get("url", "")).scheme not in ("http", "https"):
                     raise ValueError("invalid app spec")
-                self.settle_size(spec)
+                self.settle_chosen(spec)
             place = msg.get("place") or {}
             app_id = msg.get("id")
-            if cmd == "register" and spec and spec.get("keepAlive", True):
+            # A loaded popup takes new settings even without keepAlive.
+            if cmd == "register" and spec and (spec.get("keepAlive", True) or spec["id"] in self.popups):
                 self.ensure(spec)
             elif cmd == "toggle" and spec:
                 call(self.ensure(spec), "toggle", place)
@@ -528,11 +547,18 @@ def run_daemon():
 
         def write_state(self):
             state = {}
-            for pid in set(self.popups) | set(self.favicons) | set(self.chosen_size):
+            for pid in set(self.popups) | set(self.favicons) | set(self.chosen):
                 state[pid] = {"unread": self.unread.get(pid, 0),
                               "favicon": self.favicons.get(pid, "")}
-                if pid in self.chosen_size:
-                    state[pid]["chosenSize"] = self.chosen_size[pid]
+                if pid in self.popups:
+                    state[pid]["audible"] = self.audible.get(pid, False)
+                    state[pid]["muted"] = bool(self.chosen.get(pid, {}).get(
+                        "muted", self.specs.get(pid, {}).get("muted")))
+                if pid in self.chosen:
+                    state[pid]["chosen"] = self.chosen[pid]
+            if state == self.last_state:
+                return
+            self.last_state = json.loads(json.dumps(state))
             tmp = state_path + ".tmp"
             with open(tmp, "w") as f:
                 json.dump(state, f)

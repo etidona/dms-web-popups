@@ -136,7 +136,8 @@ PluginSettings {
                             size: modelData.size,
                             keepAlive: modelData.keepAlive,
                             allowMicrophone: false,
-                            allowCamera: false
+                            allowCamera: false,
+                            muted: false
                         })
                     }
                 }
@@ -214,7 +215,8 @@ PluginSettings {
                         size: root.sizes[newSizeGroup.currentIndex] || "medium",
                         keepAlive: true,
                         allowMicrophone: false,
-                        allowCamera: false
+                        allowCamera: false,
+                        muted: false
                     });
                     nameField.text = "";
                     urlField.text = "";
@@ -341,6 +343,14 @@ PluginSettings {
                             description: "Needed for video calls"
                             checked: appCard.modelData.allowCamera ?? false
                             onToggled: checked => root.updateVariant(appCard.modelData.id, { allowCamera: checked })
+                        }
+
+                        DToggle {
+                            width: parent.width
+                            text: "Mute audio"
+                            description: "Silence the app's sounds; also from the popup header"
+                            checked: appCard.modelData.muted ?? false
+                            onToggled: checked => root.updateVariant(appCard.modelData.id, { muted: checked })
                         }
                     }
                 }

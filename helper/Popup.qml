@@ -16,6 +16,7 @@ Window {
 
     readonly property string appId: appSpec.id
     property string currentSize: appSpec.size || "medium"
+    property bool muted: !!appSpec.muted
     property bool pinned: false
     property bool wasActive: false
     property bool dialogOpen: false
@@ -65,6 +66,7 @@ Window {
 
     onAppSpecChanged: {
         currentSize = appSpec.size || "medium";
+        muted = !!appSpec.muted;
         syncPermissions();
     }
 
@@ -118,9 +120,14 @@ Window {
     function cycleSize() {
         const i = sizeOrder.indexOf(currentSize);
         currentSize = sizeOrder[(i + 1) % sizeOrder.length];
-        backend.sizeChosen(appId, currentSize);
+        backend.valueChosen(appId, "size", currentSize);
         if (lastPlace && win.visible)
             remap(lastPlace);
+    }
+
+    function toggleMuted() {
+        muted = !muted;
+        backend.valueChosen(appId, "muted", muted);
     }
 
     // A layer surface takes its output, size and margins when it is mapped,
@@ -387,6 +394,12 @@ Window {
                     onClicked: win.cycleSize()
                 }
                 HeaderButton {
+                    glyph: win.muted ? "volume_off" : "volume_up"
+                    tip: win.muted ? "Unmute" : "Mute"
+                    active: win.muted
+                    onClicked: win.toggleMuted()
+                }
+                HeaderButton {
                     glyph: "keep"; tip: "Keep open"
                     active: win.pinned
                     onClicked: win.pinned = !win.pinned
@@ -410,6 +423,9 @@ Window {
             settings.webRTCPublicInterfacesOnly: true // no local IPs to sites
             settings.navigateOnDropEnabled: false
             settings.fullScreenSupportEnabled: true
+            audioMuted: win.muted
+
+            onRecentlyAudibleChanged: backend.audibleChanged(win.appId, recentlyAudible)
 
             // Fullscreen (e.g. YouTube videos) fills the popup.
             onFullScreenRequested: request => request.accept()
