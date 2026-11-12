@@ -31,7 +31,8 @@ PluginComponent {
 
     // ---- grouping ----------------------------------------------------------
     // With "Group the app buttons" on, the first Web Popups button of a bar
-    // shows every app of that bar and expands on hover; the others hide.
+    // shows a globe, and on hover a panel with every app of that bar; the
+    // others hide.
     // Hidden buttons stay loaded, so they keep registering their app.
 
     readonly property bool grouped: !!pluginData?.groupIcons
@@ -64,18 +65,26 @@ PluginComponent {
             clearVisibilityOverride();
     }
 
+    // The panel opens next to the bar instead of growing inside it: a bar
+    // section that runs out of room moves its widgets elsewhere, and the
+    // center one re-centers, so a growing group would slip from under the
+    // pointer. It stays open while the pointer is on the globe or on it.
+    property Item globe: null
+    readonly property bool groupHovered: groupHover.hovered || panelHover.hovered
+    onGroupHoveredChanged: {
+        if (groupHovered) {
+            closeTimer.stop();
+            if (!groupOpen)
+                openTimer.restart();
+        } else {
+            openTimer.stop();
+            closeTimer.restart();
+        }
+    }
+
     HoverHandler {
         id: groupHover
         enabled: root.isLeader
-        onHoveredChanged: {
-            if (hovered) {
-                closeTimer.stop();
-                openTimer.restart();
-            } else {
-                openTimer.stop();
-                closeTimer.restart();
-            }
-        }
     }
 
     Timer {
@@ -87,7 +96,10 @@ PluginComponent {
     Timer {
         id: closeTimer
         interval: 400
-        onTriggered: root.groupOpen = false
+        onTriggered: {
+            if (!root.groupHovered)
+                root.groupOpen = false;
+        }
     }
 
     Connections {
@@ -120,7 +132,8 @@ PluginComponent {
             keepAlive: data?.keepAlive ?? true,
             allowMicrophone: data?.allowMicrophone ?? false,
             allowCamera: data?.allowCamera ?? false,
-            muted: data?.muted ?? false
+            muted: data?.muted ?? false,
+            audioOutput: data?.audioOutput || ""
         };
     }
 
@@ -132,6 +145,27 @@ PluginComponent {
     function colorString(c) {
         const hex = v => Math.round(v * 255).toString(16).padStart(2, "0");
         return "#" + hex(c.a) + hex(c.r) + hex(c.g) + hex(c.b);
+    }
+
+    // Audio outputs, from DMS's AudioService: real outputs only (Pipewire
+    // also lists app streams as sinks). Same as in WebPopupsSettings.qml.
+    function isOutput(node) {
+        return !!node && !node.isStream && node.properties?.["media.class"] === "Audio/Sink";
+    }
+
+    // [{ name, label }], without the outputs hidden in DMS.
+    function outputList() {
+        return AudioService.getAvailableSinks().filter(isOutput).map(n => ({ name: n.name, label: AudioService.displayName(n) }));
+    }
+
+    // { name: label } for every output, also those hidden in DMS.
+    function outputLabels() {
+        const map = {};
+        for (const node of AudioService.allNodes || []) {
+            if (isOutput(node))
+                map[node.name] = AudioService.displayName(node);
+        }
+        return map;
     }
 
     function themeSpec() {
@@ -148,6 +182,9 @@ PluginComponent {
             spacingXS: Theme.spacingXS,
             spacingS: Theme.spacingS,
             spacingM: Theme.spacingM,
+            // Audio outputs for the popup header menu.
+            outputs: outputList(),
+            outputLabels: outputLabels(),
             // Where the running shell keeps its icon font: a DMS build with
             // the UI embedded unpacks it under $XDG_RUNTIME_DIR.
             iconFont: Quickshell.shellDir + "/DCommon/assets/fonts/material-design-icons/variablefont/MaterialSymbolsRounded[FILL,GRAD,opsz,wght].ttf"
@@ -180,10 +217,13 @@ PluginComponent {
             send({ cmd: "toggle", app: appSpec(), place: placement(x, y, width, screen) });
     }
 
-    // Open one app of the group next to its own icon.
-    function toggleFromGroup(app, icon) {
-        const size = isVertical ? icon.height : icon.width;
-        const anchor = surfaceContext?.popupAnchor(root, section, icon, size);
+    // Open one app of the group next to the globe.
+    function toggleFromGroup(app) {
+        groupOpen = false;
+        if (!globe)
+            return;
+        const size = isVertical ? globe.height : globe.width;
+        const anchor = surfaceContext?.popupAnchor(root, section, globe, size);
         if (!anchor)
             return;
         const t = anchor.trigger;
@@ -198,8 +238,8 @@ PluginComponent {
     function triggerHoverPopout(widgetId) {
     }
 
-    // Stop the helper, and every page it holds, when the plugin is disabled
-    // or reloaded: it runs in its own session and would outlive the plugin.
+    // Stop the helpers, and every page they hold, when the plugin is disabled
+    // or reloaded: they run in their own session and would outlive the plugin.
     // DMS destroys the buttons before it emits pluginUnloaded, so check here
     // whether the plugin itself is gone (not just this button, e.g. moved).
     Component.onDestruction: {
@@ -207,8 +247,11 @@ PluginComponent {
             send({ cmd: "quit" });
     }
 
+    // Right click: reload an app's page; on the group, open these settings.
     pillRightClickAction: () => {
-        if (!isLeader && variantData?.url)
+        if (isLeader)
+            PopoutService.openSettingsWithTab("plugin:" + pluginId);
+        else if (variantData?.url)
             send({ cmd: "reload", id: variantId });
     }
 
@@ -319,69 +362,106 @@ PluginComponent {
         }
     }
 
-    // The group: one icon with the total unread count; on hover it grows
-    // into a row (or column) with every app.
-    component AppGroup: Item {
+    // The group: a globe with the total unread count and sound mark.
+    component AppGroup: AppGlyph {
         id: group
-        readonly property bool vertical: root.isVertical
-        readonly property real fullLength: root.groupApps.length * root.iconSize
-            + Math.max(0, root.groupApps.length - 1) * Theme.spacingS
-        readonly property real length: root.groupOpen ? Math.max(root.iconSize, fullLength) : root.iconSize
-
-        implicitWidth: vertical ? root.iconSize : length
-        implicitHeight: vertical ? length : root.iconSize
-        clip: true
-
-        Behavior on implicitWidth {
-            enabled: !SettingsData.reduceMotion
-            NumberAnimation { duration: Theme.shortDuration; easing.type: Theme.standardEasing }
+        favicon: ""
+        icon: "language"
+        unread: root.groupApps.reduce((sum, app) => sum + (root.appState[app.id]?.unread ?? 0), 0)
+        sound: {
+            const sounds = root.groupApps.map(app => root.soundOf(app.id));
+            return sounds.includes("audible") ? "audible" : (sounds.includes("muted") ? "muted" : "");
         }
-        Behavior on implicitHeight {
-            enabled: !SettingsData.reduceMotion
-            NumberAnimation { duration: Theme.shortDuration; easing.type: Theme.standardEasing }
+        // DMS builds a pill for each bar orientation: anchor to the shown one.
+        onVisibleChanged: if (visible) root.globe = group
+        Component.onCompleted: if (visible) root.globe = group
+        Component.onDestruction: {
+            if (root.globe === group)
+                root.globe = null;
         }
+    }
 
-        AppGlyph {
-            anchors.centerIn: parent
-            favicon: ""
-            icon: "language"
-            unread: root.groupApps.reduce((sum, app) => sum + (root.appState[app.id]?.unread ?? 0), 0)
-            sound: {
-                const sounds = root.groupApps.map(app => root.soundOf(app.id));
-                return sounds.includes("audible") ? "audible" : (sounds.includes("muted") ? "muted" : "");
+    // The open group: every app of the bar, then a settings button, in a
+    // panel beside the bar, starting at the globe.
+    PopupWindow {
+        id: groupPanel
+        readonly property int position: root.barConfig?.position ?? 0
+        visible: root.isLeader && root.groupOpen && !!root.globe && root.globe.visible
+        color: "transparent"
+        implicitWidth: panelBox.implicitWidth
+        implicitHeight: panelBox.implicitHeight
+
+        anchor.item: root.globe
+        anchor.rect.width: root.globe?.width ?? 0
+        anchor.rect.height: root.globe?.height ?? 0
+        // Top bar: below the globe; bottom: above; left: to its right; right: to its left.
+        anchor.edges: [Edges.Bottom | Edges.Left, Edges.Top | Edges.Left, Edges.Top | Edges.Right, Edges.Top | Edges.Left][position] ?? (Edges.Bottom | Edges.Left)
+        anchor.gravity: [Edges.Bottom | Edges.Right, Edges.Top | Edges.Right, Edges.Bottom | Edges.Right, Edges.Bottom | Edges.Left][position] ?? (Edges.Bottom | Edges.Right)
+        anchor.adjustment: PopupAdjustment.Slide
+
+        Rectangle {
+            id: panelBox
+            implicitWidth: panelGrid.implicitWidth + Theme.spacingS * 2
+            implicitHeight: panelGrid.implicitHeight + Theme.spacingS * 2
+            radius: Theme.cornerRadius
+            color: Theme.surfaceContainer
+            border.color: Theme.outlineVariant
+            border.width: 1
+
+            HoverHandler {
+                id: panelHover
             }
-            opacity: root.groupOpen ? 0 : 1
-            visible: opacity > 0
-            Behavior on opacity { NumberAnimation { duration: Theme.shortDuration } }
-        }
 
-        Grid {
-            columns: group.vertical ? 1 : Math.max(1, root.groupApps.length)
-            spacing: Theme.spacingS
-            opacity: root.groupOpen ? 1 : 0
-            visible: opacity > 0
-            Behavior on opacity { NumberAnimation { duration: Theme.shortDuration } }
+            Grid {
+                id: panelGrid
+                anchors.centerIn: parent
+                columns: root.isVertical ? 1 : root.groupApps.length + 1
+                spacing: Theme.spacingS
 
-            Repeater {
-                model: root.groupApps
+                Repeater {
+                    model: root.groupApps
 
-                AppGlyph {
-                    id: member
-                    required property var modelData
-                    favicon: root.appState[modelData.id]?.favicon ?? ""
-                    icon: modelData.icon || "web"
-                    unread: root.appState[modelData.id]?.unread ?? 0
-                    sound: root.soundOf(modelData.id)
+                    AppGlyph {
+                        id: member
+                        required property var modelData
+                        favicon: root.appState[modelData.id]?.favicon ?? ""
+                        icon: modelData.icon || "web"
+                        unread: root.appState[modelData.id]?.unread ?? 0
+                        sound: root.soundOf(modelData.id)
+
+                        MouseArea {
+                            anchors.fill: parent
+                            acceptedButtons: Qt.LeftButton | Qt.RightButton
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: mouse => {
+                                if (mouse.button === Qt.RightButton)
+                                    root.send({ cmd: "reload", id: member.modelData.id });
+                                else
+                                    root.toggleFromGroup(member.modelData);
+                            }
+                        }
+                    }
+                }
+
+                Item {
+                    implicitWidth: root.iconSize
+                    implicitHeight: root.iconSize
+
+                    DIcon {
+                        anchors.centerIn: parent
+                        name: "settings"
+                        size: root.iconSize * 0.8
+                        color: settingsMouse.containsMouse ? Theme.surfaceText : Theme.surfaceVariantText
+                    }
 
                     MouseArea {
+                        id: settingsMouse
                         anchors.fill: parent
-                        acceptedButtons: Qt.LeftButton | Qt.RightButton
+                        hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: mouse => {
-                            if (mouse.button === Qt.RightButton)
-                                root.send({ cmd: "reload", id: member.modelData.id });
-                            else
-                                root.toggleFromGroup(member.modelData, member);
+                        onClicked: {
+                            root.groupOpen = false;
+                            PopoutService.openSettingsWithTab("plugin:" + root.pluginId);
                         }
                     }
                 }

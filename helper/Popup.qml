@@ -17,6 +17,9 @@ Window {
     readonly property string appId: appSpec.id
     property string currentSize: appSpec.size || "medium"
     property bool muted: !!appSpec.muted
+    readonly property string audioOutput: appSpec.audioOutput || ""
+    // Audio outputs, [{name, label}], sent by the plugin with the theme.
+    readonly property var outputs: theme.outputs || []
     property bool pinned: false
     property bool wasActive: false
     property bool dialogOpen: false
@@ -118,6 +121,7 @@ Window {
     }
 
     function cycleSize() {
+        outputMenu.visible = false;
         const i = sizeOrder.indexOf(currentSize);
         currentSize = sizeOrder[(i + 1) % sizeOrder.length];
         backend.valueChosen(appId, "size", currentSize);
@@ -130,6 +134,13 @@ Window {
         backend.valueChosen(appId, "muted", muted);
     }
 
+    // The helper moves the app's sound right away; the page keeps playing.
+    function chooseOutput(name) {
+        outputMenu.visible = false;
+        if (name !== audioOutput)
+            backend.valueChosen(appId, "audioOutput", name);
+    }
+
     // A layer surface takes its output, size and margins when it is mapped,
     // so a visible popup is unmapped and mapped again to apply new ones.
     // The old surface's late focus loss must not count as a click outside,
@@ -138,6 +149,7 @@ Window {
     // compositor hands focus back to the previous window after the new
     // surface was activated, and autohide closes it.
     function remap(p) {
+        outputMenu.visible = false;
         wasActive = false;
         win.visible = false;
         remapTimer.pending = p;
@@ -174,6 +186,7 @@ Window {
 
     function hidePopup() {
         remapTimer.stop();
+        outputMenu.visible = false;
         if (dialogOpen)
             fileDialog.reject(); // answer the page before a teardown
         win.visible = false;
@@ -391,9 +404,24 @@ Window {
                     onClicked: win.toggleMuted()
                 }
                 HeaderButton {
+                    id: outputButton
+                    visible: win.outputs.length > 1 || win.audioOutput !== ""
+                    glyph: "speaker"
+                    tip: "Audio output"
+                    active: win.audioOutput !== "" || outputMenu.visible
+                    onClicked: outputMenu.visible = !outputMenu.visible
+                }
+                HeaderButton {
                     glyph: "keep"; tip: "Keep open"
                     active: win.pinned
                     onClicked: win.pinned = !win.pinned
+                }
+                HeaderButton {
+                    glyph: "settings"; tip: "Web Popups settings"
+                    onClicked: {
+                        win.hidePopup();
+                        backend.openSettings();
+                    }
                 }
                 HeaderButton { glyph: "close"; tip: "Close"; onClicked: win.hidePopup() }
             }
@@ -470,6 +498,156 @@ Window {
         }
     }
 
+    // Audio output menu, below the header at the right.
+    FontMetrics {
+        id: menuMetrics
+        font.family: win.theme.font || ""
+        font.pixelSize: win.fontSize
+    }
+
+    // A click in the page (or anywhere outside the menu) closes the menu.
+    MouseArea {
+        anchors.fill: parent
+        z: 9
+        visible: outputMenu.visible
+        onPressed: outputMenu.visible = false
+    }
+
+    Rectangle {
+        id: outputMenu
+        visible: false
+        z: 10
+        anchors.right: parent.right
+        anchors.rightMargin: win.spacingS
+        y: header.height
+        readonly property real labelWidth: Math.max(...entries.map(e => menuMetrics.advanceWidth(e.label)))
+        width: Math.min(parent.width - 2 * win.spacingS,
+                        labelWidth + win.glyphSize + 3 * win.spacingS + 2 * win.spacingXS + 2)
+        height: menuColumn.implicitHeight + 2 * win.spacingXS
+        radius: win.spacingS
+        color: win.bgColor
+        border.width: 1
+        border.color: win.borderColor
+
+        // The chosen output may be unplugged (or hidden in DMS): still list it.
+        readonly property var entries: {
+            const list = [{ name: "", label: "Default output" }].concat(win.outputs);
+            if (win.audioOutput && !win.outputs.some(o => o.name === win.audioOutput)) {
+                const known = (win.theme.outputLabels || {})[win.audioOutput];
+                list.push({ name: win.audioOutput, label: known || win.audioOutput + " (not connected)" });
+            }
+            return list;
+        }
+
+        Column {
+            id: menuColumn
+            anchors.fill: parent
+            anchors.margins: win.spacingXS
+
+            Repeater {
+                model: outputMenu.entries
+
+                Rectangle {
+                    id: entry
+                    required property var modelData
+                    readonly property bool selected: modelData.name === win.audioOutput
+                    width: menuColumn.width
+                    height: win.buttonSize
+                    radius: win.spacingXS
+                    color: entryMouse.containsMouse ? Qt.alpha(win.fgColor, 0.10) : "transparent"
+
+                    Text {
+                        id: checkGlyph
+                        anchors.left: parent.left
+                        anchors.leftMargin: win.spacingS
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: win.glyphSize
+                        text: entry.selected ? "check" : ""
+                        font.family: win.iconFamily
+                        font.pixelSize: win.glyphSize
+                        color: win.accentColor
+                    }
+
+                    Text {
+                        anchors.left: checkGlyph.right
+                        anchors.leftMargin: win.spacingS
+                        anchors.right: parent.right
+                        anchors.rightMargin: win.spacingS
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: entry.modelData.label
+                        textFormat: Text.PlainText // device names come from the devices
+                        color: entry.selected ? win.accentColor : win.fgColor
+                        font.family: win.theme.font || ""
+                        font.pixelSize: win.fontSize
+                        elide: Text.ElideRight
+                    }
+
+                    MouseArea {
+                        id: entryMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: win.chooseOutput(entry.modelData.name)
+                    }
+                }
+            }
+        }
+    }
+
+    // ---- header button tooltips ---------------------------------------------
+
+    property Item tipButton: null
+
+    function showTip(button) {
+        tipButton = button;
+        tipTimer.restart();
+    }
+
+    function hideTip(button) {
+        if (tipButton !== button)
+            return;
+        tipTimer.stop();
+        tipButton = null;
+        tipBox.visible = false;
+    }
+
+    Timer {
+        id: tipTimer
+        interval: 600
+        onTriggered: {
+            const b = win.tipButton;
+            if (!b || outputMenu.visible)
+                return;
+            tipText.text = b.tip;
+            const pos = b.mapToItem(win.contentItem, 0, 0);
+            tipBox.x = Math.round(win.clamp(pos.x + b.width / 2 - tipBox.width / 2,
+                                            win.spacingXS, win.width - tipBox.width - win.spacingXS));
+            tipBox.y = Math.round(pos.y + b.height + win.spacingXS);
+            tipBox.visible = true;
+        }
+    }
+
+    Rectangle {
+        id: tipBox
+        visible: false
+        z: 20
+        width: tipText.implicitWidth + 2 * win.spacingS
+        height: tipText.implicitHeight + win.spacingXS * 2
+        radius: win.spacingXS
+        color: win.fgColor
+
+        Text {
+            id: tipText
+            anchors.centerIn: parent
+            textFormat: Text.PlainText
+            color: win.bgColor
+            font.family: win.theme.font || ""
+            font.pixelSize: win.fontSize * 0.9
+        }
+    }
+
+    readonly property string iconFamily: iconFont.status === FontLoader.Ready ? iconFont.font.family : "Material Symbols Rounded"
+
     component HeaderButton: Rectangle {
         id: hb
         property string glyph: ""
@@ -485,7 +663,7 @@ Window {
         Text {
             anchors.centerIn: parent
             text: hb.glyph
-            font.family: iconFont.status === FontLoader.Ready ? iconFont.font.family : "Material Symbols Rounded"
+            font.family: win.iconFamily
             font.pixelSize: win.glyphSize
             color: hb.active ? win.accentColor : win.fgColor
         }
@@ -495,7 +673,11 @@ Window {
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: hb.clicked()
+            onContainsMouseChanged: containsMouse ? win.showTip(hb) : win.hideTip(hb)
+            onClicked: {
+                win.hideTip(hb);
+                hb.clicked();
+            }
         }
     }
 

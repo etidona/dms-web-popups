@@ -27,9 +27,13 @@ bar; click outside and it goes away, still signed in and still connected.
 - **Sound**: a small speaker on the bar button shows which app is playing
   sound, or that it is muted. Mute an app from the settings or with the mute
   button in the popup header.
-- **Popup header**: back, reload, size, mute, keep open (pin), close.
-- **Grouped buttons** (optional): one button per bar that expands into all
-  your web apps when you hover over it, with the total unread count.
+- **Audio output per app**: send an app's sound to another output, e.g.
+  YouTube to your headphones and WhatsApp to the speakers. It changes right
+  away, without reloading the page.
+- **Popup header**: back, reload, size, mute, audio output (when you have
+  more than one), keep open (pin), plugin settings, close.
+- **Grouped buttons** (optional): one button per bar that opens a panel with
+  all your web apps when you hover over it, with the total unread count.
 - **Fits your desktop**: follows the DMS theme colors, and works with bars on
   any screen edge and on multiple monitors.
 
@@ -38,24 +42,27 @@ bar; click outside and it goes away, still signed in and still connected.
 1. Open Settings → Plugins → Web Popups.
 2. Click a preset, or add any site with a name, an `http`/`https` address and
    a [Material Symbols](https://fonts.google.com/icons) icon name.
-3. The new button appears in the center of your main bar. Move it where you
-   like from the bar settings.
+3. The new button appears on your main bar, after your other Web Popups
+   buttons (the first one in the center). Move it where you like from the bar
+   settings.
 
 Turn on **Group the app buttons** to keep the bar tidy: the first Web Popups
-button of each bar shows a single globe icon, and expands into all the apps
-of that bar on hover. Click an app to open it, right click to reload it. The
-group works best at the start or end of a bar: in the center section it
-re-centers while it grows.
+button of each bar shows a single globe icon. Hover over it and a panel
+beside the bar shows all the apps of that bar. Click an app to open it, right
+click to reload it; the gear in the panel, or a right click on the globe,
+opens the plugin settings.
 
 For each app you can choose:
 
 - **Keep loaded in the background**: stays connected when closed, for
   notifications and unread badges. Turn it off for apps you only open now and
-  then, to save memory.
+  then, to save memory: every loaded app takes about 250 MB.
 - **Allow microphone** and **Allow camera**: needed for calls and voice
   messages. Both are off by default.
 - **Mute audio**: silences the app's sounds. The mute button in the popup
   header changes the same setting.
+- **Audio output**: where the app's sound goes. The audio output menu in the
+  popup header changes the same setting.
 
 ## Privacy and security
 
@@ -78,13 +85,14 @@ For each app you can choose:
 - DankMaterialShell 2.0 or later
 - A Wayland compositor with layer-shell support (niri, Hyprland, Sway, KDE
   Plasma, ...)
-- Python 3 with PyQt6 and Qt WebEngine, the layer-shell-qt QML module, and
-  `xdg-open` (xdg-utils) for links:
+- Python 3 with PyQt6 and Qt WebEngine, the layer-shell-qt QML module,
+  `xdg-open` (xdg-utils) for links, and `pactl` for the per-app audio output
+  (PipeWire with pipewire-pulse, or PulseAudio):
 
 | Distro | Command |
 |---|---|
-| Fedora | `sudo dnf install python3-pyqt6-webengine layer-shell-qt xdg-utils` |
-| Arch | `sudo pacman -S python-pyqt6-webengine layer-shell-qt xdg-utils` |
+| Fedora | `sudo dnf install python3-pyqt6-webengine layer-shell-qt xdg-utils pulseaudio-utils` |
+| Arch | `sudo pacman -S python-pyqt6-webengine layer-shell-qt xdg-utils libpulse` |
 
 On other distros, install the equivalent packages. The plugin checks the
 requirements when you enable it and tells you if something is missing.
@@ -102,15 +110,19 @@ Then enable it in Settings → Plugins and add your first app.
 ## How it works
 
 Pages are rendered by Chromium (Qt WebEngine). Qt WebEngine cannot run inside
-Quickshell, so a small helper process shows the popups as layer-shell
-surfaces, the same kind of window the bar itself uses. The helper starts the
-first time it is needed and holds every page, so apps can stay loaded in the
-background. The bar buttons talk to it through a Unix socket, and stop it
-when the plugin is disabled.
+Quickshell, so helper processes show the popups as layer-shell surfaces, the
+same kind of window the bar itself uses. Every app runs in a helper process
+of its own, started the first time it is needed, so it can stay loaded in
+the background. One process per app also keeps the apps'
+sound apart: Chromium does not tell apart the audio of the pages it plays,
+but every stream of a helper carries `application.id=webpopups.<id>`. The
+helper moves them to the app's output with `pactl`, and WirePlumber
+remembers that output for the app. The bar buttons talk to the helpers
+through Unix sockets, and stop them when the plugin is disabled.
 
 - `WebPopupsWidget.qml`: the bar button
 - `WebPopupsSettings.qml`: the settings page
-- `helper/webpopups.py`: the helper process
+- `helper/webpopups.py`: the helper
 - `helper/Popup.qml`: the popup
 
 Where the data is kept (`<id>` is the id DMS gives each app, e.g.
@@ -118,7 +130,7 @@ Where the data is kept (`<id>` is the id DMS gives each app, e.g.
 
 - Logins and site data: `~/.local/share/webpopups/<id>`
 - Cache: `~/.cache/webpopups/<id>`
-- Socket, state and log: `$XDG_RUNTIME_DIR/webpopups/`
+- Sockets, state and log: `$XDG_RUNTIME_DIR/webpopups/`
 
 ## Limitations
 

@@ -24,6 +24,44 @@ PluginSettings {
     readonly property var sizes: ["small", "medium", "large"]
     readonly property var sizeLabels: sizes.map(s => s[0].toUpperCase() + s.slice(1))
 
+    // Audio outputs, from DMS's AudioService: real outputs only (Pipewire
+    // also lists app streams as sinks). Same as in WebPopupsWidget.qml.
+    function isOutput(node) {
+        return !!node && !node.isStream && node.properties?.["media.class"] === "Audio/Sink";
+    }
+
+    // [{ name, label }], without the outputs hidden in DMS.
+    function outputList() {
+        return AudioService.getAvailableSinks().filter(isOutput).map(n => ({ name: n.name, label: AudioService.displayName(n) }));
+    }
+
+    // { name: label } for every output, also those hidden in DMS.
+    function outputLabels() {
+        const map = {};
+        for (const node of AudioService.allNodes || []) {
+            if (isOutput(node))
+                map[node.name] = AudioService.displayName(node);
+        }
+        return map;
+    }
+
+    // For the per-app output choice; "" is the default output.
+    readonly property var sinks: outputList()
+    readonly property var sinkLabels: outputLabels()
+
+    function outputValues(current) {
+        const names = [""].concat(sinks.map(s => s.name));
+        if (current && !names.includes(current))
+            names.push(current); // chosen, but hidden in DMS or not connected now
+        return names;
+    }
+
+    function outputLabel(name) {
+        if (!name)
+            return "Default output";
+        return sinkLabels[name] || name + " (not connected)";
+    }
+
     // PluginService mutates its variant list in place, so `variants` never
     // signals a change; keep our own copy and refresh it on every update.
     property var apps: []
@@ -48,11 +86,32 @@ PluginSettings {
         const variantId = createVariant(name, config);
         if (!variantId)
             return;
-        // Put the new button on the primary bar right away.
+        // Put the new button on the primary bar right away, after the last
+        // Web Popups button, so the apps stay together; in the center only
+        // when there is none yet.
         const bar = SettingsData.getPrimaryBarConfig();
-        if (bar)
+        if (bar && !insertAfterLastApp(bar, root.pluginId + ":" + variantId))
             SettingsData.addBarWidget(bar.id, "center", root.pluginId + ":" + variantId);
         ToastService.showInfo(name + " added to the bar");
+    }
+
+    function insertAfterLastApp(bar, widgetId) {
+        const prefix = root.pluginId + ":";
+        for (const key of ["rightWidgets", "centerWidgets", "leftWidgets"]) {
+            const widgets = bar[key] || [];
+            let last = -1;
+            widgets.forEach((w, i) => {
+                if ((typeof w === "string" ? w : w?.id ?? "").startsWith(prefix))
+                    last = i;
+            });
+            if (last < 0)
+                continue;
+            const updated = widgets.slice();
+            updated.splice(last + 1, 0, { id: widgetId, enabled: true });
+            SettingsData.updateBarConfig(bar.id, { [key]: updated });
+            return true;
+        }
+        return false;
     }
 
     function removeApp(variantId, name) {
@@ -94,7 +153,7 @@ PluginSettings {
     ToggleSetting {
         settingKey: "groupIcons"
         label: "Group the app buttons"
-        description: "Show one button on each bar that expands into all your web apps when you hover over it"
+        description: "Show one button on each bar that opens a panel with all your web apps when you hover over it. Right click it, or click the gear in the panel, to open these settings."
         defaultValue: false
     }
 
@@ -343,6 +402,21 @@ PluginSettings {
                             description: "Needed for video calls"
                             checked: appCard.modelData.allowCamera ?? false
                             onToggled: checked => root.updateVariant(appCard.modelData.id, { allowCamera: checked })
+                        }
+
+                        DDropdown {
+                            width: parent.width
+                            text: "Audio output"
+                            description: "Where the app's sound goes; also from the popup header"
+                            readonly property var values: root.outputValues(appCard.modelData.audioOutput || "")
+                            optionValues: values.map(v => v || "@default")
+                            options: values.map(v => root.outputLabel(v))
+                            currentValue: appCard.modelData.audioOutput || "@default"
+                            onValueChanged: value => {
+                                const output = value === "@default" ? "" : value;
+                                if (output !== (appCard.modelData.audioOutput || ""))
+                                    root.updateVariant(appCard.modelData.id, { audioOutput: output });
+                            }
                         }
 
                         DToggle {
